@@ -27,7 +27,9 @@
         },
         "custom_inventory_badge_Lmzn7J": {
           "type": "custom_inventory_badge",
-          "settings": {}
+          "settings": {
+            "low_stock_threshold": 5
+          }
         },
         "quantity_selector": {
           "type": "quantity_selector",

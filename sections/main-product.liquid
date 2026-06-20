@@ -106,6 +106,8 @@
                       </h2>
                     </a>
                   </div>
+                {%- when 'custom_inventory_badge' -%}
+                  <div id="custom-inventory-badge" style="margin-bottom: 15px; font-weight: bold;"></div>
                 {%- when 'price' -%}
                   <div id="price-{{ section.id }}" role="status" {{ block.shopify_attributes }}>
                     {%- render 'price',
@@ -753,6 +755,109 @@
   </product-component>
 </product-info>
 
+
+
+{%- for block in section.blocks -%}
+  {%- case block.type -%}
+    {%- when 'custom_inventory_badge' -%}
+<script>
+  
+  // 1. Export all variant inventory data from Liquid into a JavaScript object
+  window.variantInventory = {
+    {% for variant in product.variants %}
+      "{{ variant.id }}": {
+        "inventory_management": "{{ variant.inventory_management }}",
+        "inventory_policy": "{{ variant.inventory_policy }}",
+        "inventory_quantity": {{ variant.inventory_quantity | default: 0 }},
+        "available": {{ variant.available }}
+      }{% unless forloop.last %},{% endunless %}
+    {% endfor %}
+  };
+
+  document.addEventListener("DOMContentLoaded", function() {
+    const LOW_STOCK_THRESHOLD = {{ block.settings.low_stock_threshold }};
+    // 2. Determine the starting variant ID (from URL or default to the first available)
+    let currentVariantId = new URLSearchParams(window.location.search).get('variant') || "{{ product.selected_or_first_available_variant.id }}";
+
+    // 3. The function that updates your UI based on the variant's data
+    function updateInventoryUI(variantId) {
+      const badge = document.getElementById('custom-inventory-badge');
+      const btn = document.querySelector('form[action*="/cart/add"] [name="add"]');
+      const data = window.variantInventory[variantId];
+
+      if (!data) return;
+
+      // Handle custom badge logic
+      
+      if (data.inventory_management === 'shopify') {
+        if (data.inventory_quantity <= 0 && data.inventory_policy === 'deny') {
+          badge.innerHTML = '<span style="color: #d9534f;">Out of Stock</span>';
+          if (btn) {
+            btn.disabled = true;
+            updateButtonText(btn, 'Out of Stock');
+          }
+        } else if (data.inventory_quantity > 0 && data.inventory_quantity <= LOW_STOCK_THRESHOLD) {
+          badge.innerHTML = '<span style="color: #f0ad4e;">Low Stock - Only ' + data.inventory_quantity + ' left!</span>';
+          if (btn && data.available) {
+            btn.disabled = false;
+            updateButtonText(btn, 'Add to cart');
+          }
+        } else {
+          // Clear the badge if there is plenty of stock
+          badge.innerHTML = '<span style="color: #5cb85c;">In Stock</span>';
+          if (btn && data.available) {
+            btn.disabled = false;
+            updateButtonText(btn, 'Add to cart');
+          }
+        }
+      } else {
+        badge.innerHTML = '<span style="color: #5cb85c;">In Stock</span>';
+      }
+    }
+
+    // Helper to change button text without destroying inner spans (used by Dawn theme)
+    function updateButtonText(button, text) {
+      const span = button.querySelector('span');
+      if (span) {
+        span.textContent = text;
+      } else {
+        button.textContent = text;
+      }
+    }
+
+    // Run immediately on page load
+    updateInventoryUI(currentVariantId);
+
+    // 4. "Listen" for variant changes by watching the browser URL. 
+    // Modern themes update the URL to ?variant=12345 when a user selects a new option.
+    const originalPushState = history.pushState;
+    const originalReplaceState = history.replaceState;
+
+    history.pushState = function() {
+      originalPushState.apply(this, arguments);
+      checkUrlForVariantChange();
+    };
+    history.replaceState = function() {
+      originalReplaceState.apply(this, arguments);
+      checkUrlForVariantChange();
+    };
+    window.addEventListener('popstate', checkUrlForVariantChange);
+
+    function checkUrlForVariantChange() {
+      // A tiny 50ms delay ensures the theme's default JavaScript has finished updating the URL
+      setTimeout(() => {
+        const newVariantId = new URLSearchParams(window.location.search).get('variant');
+        if (newVariantId && newVariantId !== currentVariantId) {
+          currentVariantId = newVariantId;
+          updateInventoryUI(currentVariantId);
+        }
+      }, 50); 
+    }
+  });
+</script>
+{%- endcase -%}
+{%- endfor -%}
+
 {% schema %}
 {
   "name": "t:sections.main-product.name",
@@ -803,6 +908,22 @@
       "type": "price",
       "name": "t:sections.main-product.blocks.price.name",
       "limit": 1
+    },
+    {
+      "type": "custom_inventory_badge",
+      "name": "Custom Inventory Badge",
+      "limit": 1,
+      "settings": [
+        {
+          "type": "range",
+          "id": "low_stock_threshold",
+          "min": 1,
+          "max": 20,
+          "step": 1,
+          "default": 5,
+          "label": "Low stock threshold"
+        }
+      ]
     },
     {
       "type": "sku",
